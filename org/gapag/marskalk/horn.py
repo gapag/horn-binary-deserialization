@@ -1,5 +1,9 @@
 from org.gapag.datastructures.hash_tree import *
-import matplotlib.pyplot as plt
+
+try:
+    import matplotlib.pyplot as plt
+except:
+    raise
 import networkx as nx
 
 inference_graph = nx.DiGraph()
@@ -32,7 +36,7 @@ class Len(Predicate):
 
 class Val(Predicate):
     def __str__(self):
-        return "val(" + self.field.getindex() + ")"
+        return "val(" + str(self.field.getindex()) + ")"
 
     def __init__(self, field):
         Predicate.__init__(self, field)
@@ -40,7 +44,7 @@ class Val(Predicate):
 
 class RepLen(Predicate):
     def __str__(self):
-        return "repLen(" + self.field.getindex() + ")"
+        return "repLen(" + str(self.field.getindex()) + ")"
 
     def __init__(self, field):
         Predicate.__init__(self, field)
@@ -105,16 +109,21 @@ class KnowledgeFragment:
         self.predicates = self.predicates + initial# should never add duplicates...
 
     def insert(self, item):
-        self.build_has_trees([item])
+        self.build_hash_trees([item])
 
     def __contains__(self, item):
         rtr = retrieve(self.hashes[self.get_bin(item)], item.getindex())
-        if rtr == None:
+        if not rtr or not rtr[-1]:
             return False
         else:
-            return rtr[-1] == item
+            return rtr[-1].field == item.field
 
-    def __init__(self, initial=[]):
+    def __str__(self):
+        return str(map(str, self.predicates))
+
+    def __init__(self, initial=None):
+        if not initial:
+            initial = []
         self.build_hash_trees(initial)
 
     def begins(self):
@@ -136,7 +145,7 @@ class KnowledgeFragment:
         return filter(lambda x: isinstance(x, RepLen), self.predicates)
 
 
-def known(pred, *kbs):
+def known(pred, kbs):
     for kb in kbs:
         if pred in kb:
             return True
@@ -146,7 +155,8 @@ def known(pred, *kbs):
 def learn(kb_old, kb_new):
     kb_old.build_hash_trees(kb_new.predicates)
 
-def premise_check(responsible_premise, other_premises, *kbs):
+
+def premise_check(responsible_premise, other_premises, kbs):
     concrete_premises = []
     for pr in other_premises:
         premise = pr(responsible_premise)
@@ -160,25 +170,61 @@ def create_consequences(responsible_premise, consequences):
     return [x(responsible_premise) for x in consequences]
 
 
-def add_inferences(concrete_consequences, kb_old, kb_last_round, kb_round):
+def add_inferences(responsible_premise, concrete_consequences, kb_old,
+                   kb_last_round, kb_round, name, jumps):
     inferred = []
+    messages = []
     for consequence in concrete_consequences:
-        if not known(consequence, kb_old,
-                     kb_last_round):  # the consequence does not appear
-            if not known(consequence, kb_round):
+
+        known_in_earlier_rounds = known(consequence, [kb_old, kb_last_round])
+        known_in_this_round = known(consequence, [kb_round])
+        if not known_in_earlier_rounds:  # the consequence does not appear
+            if not known_in_this_round:
                 kb_round.insert(consequence)
+                messages.append("  discovering " + str(consequence))
             inferred.append(consequence)
+            if name[0:4] == 'jump':
+                jumps[name] = None
+        else:  # idea is that a jump is to be remembered whenever it hops over unknown fields,
+            # even if the consequences are known.
+            # Jump should be done once, 
+            if name[0:4] == 'jump':
+                if name not in jumps:  # I never applied this jump.                    
+                    opposite = name.replace('left', 'right')
+                    if opposite == name:  # if nothing changed, redo the opposite
+                        opposite = name.replace('right', 'left')
+                    if opposite not in jumps:  # I never applied neither its opposite.
+                        # Check if there are unknown values
+                        # responsible_premise holds the two extremes of the jump
+                        offset = responsible_premise.field.offset()
+                        landing = responsible_premise.field.landing()
+                        known_values = between(kb_last_round.hashes['Len'],
+                                               offset, landing) \
+                                       + between(kb_old.hashes['Len'], offset,
+                                                 landing)
+                        fields_between = filter(lambda x: isinstance(x, End),
+                                                between(field_hash, offset,
+                                                        landing))
+                        if len(known_values) != len(fields_between):
+                            jumps[name] = None  ## I am using jumps as a set
+                            inferred.append(consequence)
+                            messages.append("  implying " + str(consequence))
+    if messages:
+        print("\n".join([name + " applies,"] + messages))
     return inferred
 
 
+
 def infer_generic(name,
+                  iteration,
                   responsible_premise,
                   other_premises,
                   kb_old,
                   kb_last_round,
                   kb_round,
                   consequences,
-                  *kbs):
+                  kbs,
+                  jumps={}):
     """
     Apply single rule with given premises, and consequences.
     :param rule name
@@ -197,16 +243,19 @@ def infer_generic(name,
         all_premises = [responsible_premise]+concrete_premises
         concrete_consequences = create_consequences(responsible_premise,
                                                     consequences)
-        inferred = add_inferences(concrete_consequences, kb_old, kb_last_round,
-                                  kb_round)
-        inference_graph.add_nodes_from(
-            map(str,all_premises+inferred)
-        )
-        inference_graph.add_node(name)
-        inference_graph.add_edges_from(
-            [(k,name) for k in all_premises]+
-            [(name,k) for k in inferred]
-        )
+        inferred = add_inferences(responsible_premise, concrete_consequences,
+                                  kb_old, kb_last_round,
+                                  kb_round, name, jumps)
+        if not inferred:
+            return
+        inferred_nodes = map(str, inferred)
+        premises_nodes = map(str, all_premises)
+        predicate_nodes = inferred_nodes + premises_nodes
+        rule_nodes = [(k, name) for k in premises_nodes] + \
+                     [(name, k) for k in inferred_nodes]
+        inference_graph.add_nodes_from(predicate_nodes, kind='predicate')
+        inference_graph.add_node(name, kind='rule', label=iteration)
+        inference_graph.add_edges_from(rule_nodes)
 
 
 def next_field(field, derive):
@@ -235,13 +284,14 @@ def add_some(val):
     return add_val
 
 
-def infer_forward(b, kb_old, kb_last_round, kb_round, *kbs):
+def infer_forward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
     # creation of second consequence, this is included in a function
 
     i_fw_field = next_field(b.field, add_some(1))
     if not i_fw_field:
         return
     infer_generic("forward(" + str(b.getindex()) + ")",
+                  iteration,
                   b,
                   [lambda x: Len(x.field)],
                   kb_old,
@@ -249,19 +299,19 @@ def infer_forward(b, kb_old, kb_last_round, kb_round, *kbs):
                   kb_round,
                   [
                       lambda x: Val(x.field),
-                      # TODO maybe not necessary to have lambdas
                       lambda x: Beg(i_fw_field)
                   ],
                   kbs
                   )
 
 
-def infer_backward(b, kb_old, kb_last_round, kb_round, *kbs):
+def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
     # creation of second consequence, this is included in a function
     i_bw_field = next_field(b.field, add_some(-1))
     if not i_bw_field:
         return
     infer_generic("backward(" + str(b.getindex()) + ")",
+                  iteration,
                   b,
                   [lambda x: Len(i_bw_field)],
                   kb_old,
@@ -269,18 +319,18 @@ def infer_backward(b, kb_old, kb_last_round, kb_round, *kbs):
                   kb_round,
                   [
                       lambda x: Val(i_bw_field),
-                      # TODO maybe not necessary to have lambdas
                       lambda x: Beg(i_bw_field)
                   ],
                   kbs
                   )
 
 
-def infer_join(b, kb_old, kb_last_round, kb_round, *kbs):
+def infer_join(iteration, b, kb_old, kb_last_round, kb_round, kbs):
     i_jo_field = next_field(b.field, add_some(1))
     if not i_jo_field:
         return
     infer_generic("join(" + str(b.getindex()) + ")",
+                  iteration,
                   b,
                   [lambda x: Beg(i_jo_field)],
                   kb_old,
@@ -288,13 +338,12 @@ def infer_join(b, kb_old, kb_last_round, kb_round, *kbs):
                   kb_round,
                   [
                       lambda x: Len(x.field),
-                      # TODO maybe not necessary to have lambdas
                   ],
                   kbs
                   )
 
 
-def infer_jump_right(ptr, kb_old, kb_last_round, kb_round, *kbs):
+def infer_jump_right(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
     infer_generic("jump_right(" +
                   (",".join(
                       map(str,[
@@ -302,22 +351,23 @@ def infer_jump_right(ptr, kb_old, kb_last_round, kb_round, *kbs):
                         ptr.field.landing(),
                         ptr.getindex()])
                   )) + ")",
+                  iteration,
                   ptr,
                   [
-                      lambda x: Val(ptr.getindex())
-                      , lambda x: Beg(ptr.field.offset())
+                      lambda x: Val(ptr.field)
+                      , lambda x: Beg(ptr.field.origin)
                   ],
                   kb_old,
                   kb_last_round,
                   kb_round,
                   [
-                      lambda x: Beg(ptr.field.landing())
+                      lambda x: Beg(ptr.field.land)
                   ],
                   kbs
                   )
 
 
-def infer_jump_left(ptr, kb_old, kb_last_round, kb_round, *kbs):
+def infer_jump_left(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
     infer_generic("jump_left(" +
                   (",".join(
                         map(str,
@@ -328,16 +378,17 @@ def infer_jump_left(ptr, kb_old, kb_last_round, kb_round, *kbs):
                             ])
                             )
                       ) + ")",
+                  iteration,
                   ptr,
                   [
-                      lambda x: Val(ptr.getindex())
-                      , lambda x: Beg(ptr.field.landing())
+                      lambda x: Val(ptr.field)
+                      , lambda x: Beg(ptr.field.land)
                   ],
                   kb_old,
                   kb_last_round,
                   kb_round,
                   [
-                      lambda x: Beg(ptr.field.offset())
+                      lambda x: Beg(ptr.field.origin)
                   ],
                   kbs
                   )
@@ -347,7 +398,8 @@ def next_level(increment):
         increment(x).append(0)
     return next_level_0
 
-def infer_replen(rep, kb_old, kb_last_round, kb_round, *kbs):
+
+def infer_replen(iteration, rep, kb_old, kb_last_round, kb_round, kbs):
     shifted = add_some(len(rep.field.body))
     same = add_some(0)
     end_begin = next_field(rep,shifted)
@@ -356,36 +408,39 @@ def infer_replen(rep, kb_old, kb_last_round, kb_round, *kbs):
     if not (end_begin and below_end_begin and below_start_begin):
         return
     infer_generic("rep_len(" + str(rep.getindex()) + ")",
-                    rep,
-                    [
+                  iteration,
+                  rep,
+                  [
                         lambda x : Beg(shifted),
                         lambda x : Beg(rep.field)
                     ],
-                    kb_old,
-                    kb_last_round,
-                    kb_round,
-                    [
+                  kb_old,
+                  kb_last_round,
+                  kb_round,
+                  [
                         lambda x: RepLen(rep.field),
                         lambda x: Beg(below_start_begin),
                         lambda x: Beg(below_end_begin)
                     ],
-                    kbs
+                  kbs
                   )
 
 
 def saturate(initial):
+    round_counter = 0
     initial_knowledge = KnowledgeFragment(initial)
     old = KnowledgeFragment()
     not_saturated = True
     while not_saturated :
-        inferred = saturate_round(old, initial_knowledge)
+        inferred = saturate_round(round_counter, old, initial_knowledge)
         not_saturated = not inferred.is_empty()
         initial_knowledge = inferred
+        round_counter += 1
     return old
-    
+
 
 # Applies a reasoning round. Returns a new kb_new
-def saturate_round(kb_old, kb_last_round):
+def saturate_round(round_counter, kb_old, kb_last_round):
     kb_round = KnowledgeFragment()
     # Informally: in a rule, the responsibility set is the set of predicates
     # occurring in the premises that identify the rule.
@@ -404,20 +459,23 @@ def saturate_round(kb_old, kb_last_round):
     inference_funcs =[(infer_forward    , begins),
                       (infer_backward   , begins),
                       (infer_join       , begins),
-                      (infer_jump_left  , pointers),
+                      (infer_jump_left, pointers),
                       (infer_jump_right , pointers),
                       (infer_replen     , reps)]
-    
+    print("** In round **" + str(round_counter))
     def apply_inference(inf_fun):
         for responsible in inf_fun[1][0]:
-            inf_fun[0](responsible,kb_old, kb_last_round, kb_round, kb_old, kb_last_round)
+            inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
+                       kb_round, [kb_old, kb_last_round])
         for responsible in inf_fun[1][1]:
-            inf_fun[0](responsible,kb_old, kb_last_round, kb_round, kb_old)
+            inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
+                       kb_round, [kb_old])
     
     for func in inference_funcs  :
         apply_inference(func)
     
     learn(kb_old,kb_last_round)
+
     return kb_round
 
 field_hash = HashTree()
@@ -553,8 +611,47 @@ def mu_labeling(fields, ind=[], scopes={},
     return initial
 
 beginning = F()
-layout = [beginning, F(), P(None,2), R([F(), P(None,2), V()])]
+layout = [beginning, P(None, 3), P(None, 2), V()]
+
+
 predicates = mu_labeling(layout)
 predicates.append(Beg(beginning))
+predicates_nodes = map(str, predicates)
+inference_graph.add_nodes_from(predicates_nodes, kind='initial')
+print(predicates_nodes)
+initial_nodes = [u for (u, d) in inference_graph.nodes(data=True) if
+                 d['kind'] == 'initial']
+ 
 old = saturate(predicates)
-print("cosa ora")
+
+pos = nx.pydot_layout(inference_graph)  # positions for all nodes
+
+rul_nodes = [(u, d) for (u, d) in inference_graph.nodes(data=True) if
+             d['kind'] == 'rule']
+label_dict = {}
+for (u, d) in rul_nodes:
+    label_dict[u] = d['label']
+rul_nodes = [list(l) for l in zip(*rul_nodes)][0]
+pred_nodes = [u for (u, d) in inference_graph.nodes(data=True) if
+              d['kind'] == 'predicate']
+
+# nodes
+nx.draw_networkx_nodes(inference_graph, pos, node_size=70, nodelist=rul_nodes)
+nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='yellow',
+                       nodelist=pred_nodes)
+nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='blue',
+                       nodelist=initial_nodes)
+
+# edges
+nx.draw_networkx_edges(inference_graph, pos,
+                       width=1)
+# labels
+nx.draw_networkx_labels(inference_graph, pos, labels=label_dict,
+                        font_color='yellow', font_size=30,
+                        font_family='sans-serif')
+nx.draw_networkx_labels(inference_graph, pos, font_size=20,
+                        font_family='sans-serif')
+
+plt.axis('off')
+# plt.savefig("weighted_graph.png") # save as png
+# plt.show() # display
