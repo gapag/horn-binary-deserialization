@@ -1,5 +1,9 @@
 from org.gapag.datastructures.hash_tree import *
 
+from rules import *
+from predicate import *
+from heapq import *
+
 try:
     import matplotlib.pyplot as plt
 except:
@@ -8,85 +12,171 @@ import networkx as nx
 
 inference_graph = nx.DiGraph()
 
-class Predicate:
-    field = None
+# prints to dot
+dot_printer = DotPrinter()
 
-    def __init__(self, field):
-        self.field = field
-
-    def getindex(self):
-        return self.field.getindex()
-
-
-class Beg(Predicate):
-    def __str__(self):
-        return "beg(" + str(self.field.getindex()) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class Len(Predicate):
-    def __str__(self):
-        return "len(" + str(self.field.getindex()) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class Val(Predicate):
-    def __str__(self):
-        return "val(" + str(self.field.getindex()) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class RepLen(Predicate):
-    def __str__(self):
-        return "repLen(" + str(self.field.getindex()) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class Rep(Predicate):
-    def __str__(self):
-        return "rep(" + str([self.field.getindex(), len(self.field.body)]) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class Pointer(Predicate):
-    def __str__(self):
-        return "ptr(" + str([self.field.getindex(), self.field.offset(),
-                             self.field.landing()]) + ")"
-
-    def __init__(self, field):
-        Predicate.__init__(self, field)
-
-
-class KnowledgeFragment:
+class ApplicationRound :
+    jumps={}
+    def __init__(self):
+        self.forward = False
+        self.backward = False
+        self.applied = {}
     
+    def has_forward(self):
+        return self.forward
+
+    def has_backward(self):
+        return self.backward
+    
+    ## Tells if the passed jump rule (or its opposite) has been applied.
+    def has_jumped(self, jump_rule):
+        s = str(jump_rule)
+        opposite = s.replace('right','left')
+        if s == opposite:
+            opposite = s.replace('left','right')
+        return self.jumps.has_key(opposite) or self.jumps.has_key(s)
+    
+    ## adds the passed rule to the set of rules that have been applied
+    def was_applied(self, rule, cost_model):
+        # Remember that a forward or a backward has been applied.
+        if isinstance(rule, ForwardBackward):
+            if rule.name == 'forward':
+                self.forward = True
+                cost_model.go_forward(rule)
+            elif rule.name == 'backward':
+                self.backward = True
+                cost_model.go_backward(rule)
+        if isinstance(rule, Jump):
+            # this has indeed been applied
+            cost_model.go_jumping(rule)
+            self.jumps[str(rule)] = rule
+        # remember the name of the applied rule.
+        self.applied[str(rule)] = rule
+
+class CostModel:
+    # current positions are related to the Beg predicates found so far.
+    # Generally a current position can be either an index,
+    # or two indexes (which identify a buffered portion)
+    # Application of a forward *might* increase (or decrease) the buffer
+    # A right jump creates a buffering (if it does not exist yet)
+    # A left jump is done only when a buffering exists
+    # A backward can remove buffering (and leave with only one position)
+    # A join and a replen have no effect (and both are applied only when there 
+    # is some buffering)
+    
+    pending_right_jumps = []
+    pending_left_jumps = []
+    
+    def go_forward(self, rule):
+        field = rule.responsible_premise.field
+        n_field = rule.consequences[-1].field
+        if field.getindex() == self.current_position[0].getindex():
+            self.current_position[0] = n_field
+        if field.getindex() == self.current_position[1].getindex():
+            self.current_position[1] = n_field
+    
+    def go_backward(self, rule):
+        field = rule.responsible_premise.field
+        p_field = rule.consequences[-1].field
+        if field.getindex() == p_field.getindex():
+            self.current_position[1] = p_field
+            
+    def go_jumping(self, rule):
+        # if jumped right, expand span right
+        # if jumped left, do nothing
+        pass
+    
+    def within_current_position(self, index):
+        return self.current_position[0].getindex() <= index <= self.current_position[1].getindex()
+    
+    def keep_in_memory_contribution(self,field):
+        index = field.getindex()
+        if self.within_current_position(index):
+            return 0 ## WARNING : This means that any pointer found and used within the buffer is equivalent.
+        else:
+            left_b = self.current_position[0].getindex()
+            right_b = self.current_position[1].getindex()
+            btw = []
+            if  index < left_b:
+                btw = between(field_hash,left_b, index)
+            elif index > right_b : 
+                btw = between(field_hash,right_b, index)
+            return len(btw)
+        
+    def estimate_right_jump(self, rule, kbs):
+        # requirements: best jump is the jump that
+        # a) results in the least bufferization (here the current position should play a role)
+        # b) pointer is to be kept in memory the least possible number of rounds
+        # Note that this does not give a deterministic choice.
+        # TODO Study the various configurations that might arise. It seems 
+        # no optimal method exists.
+        #
+        #
+        
+        #1 compute the number of elements spanned by the pointer
+        pointer_field = rule.other_premises[0].field
+        launch_field = rule.other_premises[1].field.getindex()
+        landing_field = rule.consequences[0].field.getindex()
+        all_fields = between(field_hash,launch_field,landing_field)
+        right_jump_cost = len(all_fields)
+        #2 compute how many of them are unknown
+        unknowns = 0
+        for kb_i in kbs:
+            all_values = between(kb_i['Val'], launch_field, landing_field)
+            unknowns += len(all_values)
+        right_jump_cost += unknowns
+        # Is the pointer outside the current position?
+        right_jump_cost += self.keep_in_memory_contribution(pointer_field)
+        return right_jump_cost
+    
+    def estimate_left_jump(self, rule, kbs):
+        pass
+    
+    def __init__(self, init_field):
+        self.current_position = [init_field, init_field] 
+    
+    def cost(self, rule, applied, kbs):
+        if isinstance(rule, ForwardBackward):
+            return rule
+        elif isinstance(rule, Join):
+            return rule
+        elif isinstance(rule, Jump):
+            ru = rule
+            # 1) If I jumped right, DO NOT jump left 
+            # 4) The latest I jump right, the better.
+            # 5) Do not jump right if you can go forward. (==> do not jump right if you made a forward)
+            if(rule.name == 'jump_right'):
+                if applied.has_forward() :
+                    ru = None
+                cost = cost_model.estimate_right_jump(rule, kbs)
+                heappush(self.pending_right_jumps,(cost, rule))
+                 
+            # 1) If I jumped left, DO NOT jump right
+            # 3) The earlier I jump left, the better.
+            # 6) Do not jump left if you can go backward (==> do not jump left if you made a backward).        
+            elif rule.name == 'jump_left':
+                if applied.has_backward():
+                    ru = None
+                cost = cost_model.estimate_left_jump(rule, kbs)
+                heappush(self.pending_left_jumps,(cost, rule)) 
+            if applied.has_jumped(rule):
+                ru = None
+            return ru
+        elif isinstance(rule, RepLen):
+            return rule
+
+
+
+# A knowledge base.
+class KnowledgeFragment:
+     
     def is_empty(self):
         return len(self.predicates)==0
     
-    predicates = []
-    hashes = {
-        'Beg': HashTree(),
-        # contains all beg.
-        'Len': HashTree(),
-        # contains all len.
-        'Val': HashTree(),
-        # contains all values.
-        'Rep': HashTree(),
-        # contains all repeat.
-        'RepLen': HashTree(),
-        # contains all replen
-        'Pointer': HashTree()
-    }
-
+    predicates = None
+    hashes = None
+    
+    # Return the key corresponding to the type of the item to be added/retrieved
     def get_bin(self, item):
         key = ""
         if isinstance(item, Beg):
@@ -103,14 +193,17 @@ class KnowledgeFragment:
             key = 'Pointer'
         return key
 
+    # builds the hash trees from an initial collection of predicates 
     def build_hash_trees(self, initial):
         for item in initial:
             insert(self.hashes[self.get_bin(item)], item.getindex(), item)
         self.predicates = self.predicates + initial# should never add duplicates...
 
+    # inserts a predicate item (a fact) in the knowledge base
     def insert(self, item):
         self.build_hash_trees([item])
 
+    # Tells if a fact is known or not.
     def __contains__(self, item):
         rtr = retrieve(self.hashes[self.get_bin(item)], item.getindex())
         if not rtr or not rtr[-1]:
@@ -121,41 +214,56 @@ class KnowledgeFragment:
     def __str__(self):
         return str(map(str, self.predicates))
 
+    # Initializes the knowledge base.
     def __init__(self, initial=None):
         if not initial:
             initial = []
+        self.predicates = []
+        self.hashes = {
+            'Beg': HashTree(),
+            # contains all beg.
+            'Len': HashTree(),
+            # contains all len.
+            'Val': HashTree(),
+            # contains all values.
+            'Rep': HashTree(),
+            # contains all repeat.
+            'RepLen': HashTree(),
+            # contains all replen
+            'Pointer': HashTree()
+        }
         self.build_hash_trees(initial)
-
+    # returns all the known Beg predicates.
     def begins(self):
         return filter(lambda x: isinstance(x, Beg), self.predicates)
-
+    # returns all the known Len predicates.
     def lengths(self):
         return filter(lambda x: isinstance(x, Len), self.predicates)
-
+    # returns all the known Val predicates.
     def values(self):
         return filter(lambda x: isinstance(x, Val), self.predicates)
-
+    # returns all the known Pointer predicates.
     def pointers(self):
         return filter(lambda x: isinstance(x, Pointer), self.predicates)
-
+    # returns all the known Rep predicates.
     def repeats(self):
         return filter(lambda x: isinstance(x, Rep), self.predicates)
-
+    # returns all the known RepLen predicates.
     def repeatLengths(self):
         return filter(lambda x: isinstance(x, RepLen), self.predicates)
 
-
+# Tell if predicate pred is known in knowledge base kbs 
 def known(pred, kbs):
     for kb in kbs:
         if pred in kb:
             return True
+    return False
 
-
-# side effect
+# merge the knowledge of kb_new into kb_old; kb_old changes, kb_new does not.
 def learn(kb_old, kb_new):
     kb_old.build_hash_trees(kb_new.predicates)
 
-
+# Check if a premise applies (thus, a rule).
 def premise_check(responsible_premise, other_premises, kbs):
     concrete_premises = []
     for pr in other_premises:
@@ -170,52 +278,24 @@ def create_consequences(responsible_premise, consequences):
     return [x(responsible_premise) for x in consequences]
 
 
-def add_inferences(responsible_premise, concrete_consequences, kb_old,
-                   kb_last_round, kb_round, name, jumps):
+def add_inferences(rule, kb_old,
+                   kb_last_round, kb_round):
     inferred = []
-    messages = []
-    for consequence in concrete_consequences:
+    
+    for consequence in rule.consequences:
 
         known_in_earlier_rounds = known(consequence, [kb_old, kb_last_round])
         known_in_this_round = known(consequence, [kb_round])
         if not known_in_earlier_rounds:  # the consequence does not appear
             if not known_in_this_round:
                 kb_round.insert(consequence)
-                messages.append("  discovering " + str(consequence))
-            inferred.append(consequence)
-            if name[0:4] == 'jump':
-                jumps[name] = None
-        else:  # idea is that a jump is to be remembered whenever it hops over unknown fields,
-            # even if the consequences are known.
-            # Jump should be done once, 
-            if name[0:4] == 'jump':
-                if name not in jumps:  # I never applied this jump.                    
-                    opposite = name.replace('left', 'right')
-                    if opposite == name:  # if nothing changed, redo the opposite
-                        opposite = name.replace('right', 'left')
-                    if opposite not in jumps:  # I never applied neither its opposite.
-                        # Check if there are unknown values
-                        # responsible_premise holds the two extremes of the jump
-                        offset = responsible_premise.field.offset()
-                        landing = responsible_premise.field.landing()
-                        known_values = between(kb_last_round.hashes['Len'],
-                                               offset, landing) \
-                                       + between(kb_old.hashes['Len'], offset,
-                                                 landing)
-                        fields_between = filter(lambda x: isinstance(x, End),
-                                                between(field_hash, offset,
-                                                        landing))
-                        if len(known_values) != len(fields_between):
-                            jumps[name] = None  ## I am using jumps as a set
-                            inferred.append(consequence)
-                            messages.append("  implying " + str(consequence))
-    if messages:
-        print("\n".join([name + " applies,"] + messages))
+                inferred.append(consequence)
+        
     return inferred
 
 
 
-def infer_generic(name,
+def infer_generic(rule_constructor,
                   iteration,
                   responsible_premise,
                   other_premises,
@@ -224,7 +304,7 @@ def infer_generic(name,
                   kb_round,
                   consequences,
                   kbs,
-                  jumps={}):
+                  applied_rules):
     """
     Apply single rule with given premises, and consequences.
     :param rule name
@@ -243,26 +323,46 @@ def infer_generic(name,
         all_premises = [responsible_premise]+concrete_premises
         concrete_consequences = create_consequences(responsible_premise,
                                                     consequences)
-        inferred = add_inferences(responsible_premise, concrete_consequences,
-                                  kb_old, kb_last_round,
-                                  kb_round, name, jumps)
-        if not inferred:
-            return
-        inferred_nodes = map(str, inferred)
-        premises_nodes = map(str, all_premises)
-        predicate_nodes = inferred_nodes + premises_nodes
-        rule_nodes = [(k, name) for k in premises_nodes] + \
-                     [(name, k) for k in inferred_nodes]
-        inference_graph.add_nodes_from(predicate_nodes, kind='predicate')
-        inference_graph.add_node(name, kind='rule', label=iteration)
-        inference_graph.add_edges_from(rule_nodes)
-
+        rule = rule_constructor(all_premises, concrete_consequences)
+        # here cost model should decide whether to apply now or later the rule
+        # note: for jumps, i need to wait until all costs are evaluated.
+        # Since I fire all forward and backward first, at this point 
+        # I should know how much all the pointers I found should cost.
+        appliable_rule = cost_model.cost(rule, applied_rules, kbs)
+        if appliable_rule :
+            inferred = add_inferences(appliable_rule,
+                                      kb_old, kb_last_round,
+                                      kb_round)
+            if not inferred:
+                return
+            else :
+                ## TODO for jumps the mechanism must be rethought
+                # currently, the first appliable jump is executed.
+                # What I have now is that this function computes the 
+                # cost of the application of a rule and applies it immediately.
+                # (So the cost does not actually make any difference.)
+                 
+                applied_rules.was_applied(rule, cost_model)
+                print('I applied '+str(rule))
+                print(map(str,inferred))
+                return inferred
+        
+        # inferred_nodes = map(str, inferred)
+        # premises_nodes = map(str, all_premises)
+        # predicate_nodes = inferred_nodes + premises_nodes
+        # rule_nodes = [(k, name) for k in premises_nodes] + \
+        #              [(name, k) for k in inferred_nodes]
+        # inference_graph.add_nodes_from(predicate_nodes, kind='predicate')
+        # inference_graph.add_node(name, kind='rule', label=iteration)
+        # inference_graph.add_edges_from(rule_nodes)
+        #dot_printer.edge(all_premises, str(rule_constructor), inferred)
+        
 
 def next_field(field, derive):
     """
     return the field that is inc fields far
     :param field: 
-    :param inc: function computing the new identifier from the given one 
+    :param derive: function computing the new identifier from the given one 
     :return: 
     """
     # creation of second consequence, this is included in a function
@@ -284,13 +384,13 @@ def add_some(val):
     return add_val
 
 
-def infer_forward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
+def infer_forward(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_rules):
     # creation of second consequence, this is included in a function
 
     i_fw_field = next_field(b.field, add_some(1))
     if not i_fw_field:
         return
-    infer_generic("forward(" + str(b.getindex()) + ")",
+    return infer_generic(lambda pre, cons : ForwardBackward("forward",pre,cons),
                   iteration,
                   b,
                   [lambda x: Len(x.field)],
@@ -301,16 +401,17 @@ def infer_forward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
                       lambda x: Val(x.field),
                       lambda x: Beg(i_fw_field)
                   ],
-                  kbs
+                  kbs,
+                  applied_rules
                   )
 
 
-def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
+def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_rules):
     # creation of second consequence, this is included in a function
     i_bw_field = next_field(b.field, add_some(-1))
     if not i_bw_field:
         return
-    infer_generic("backward(" + str(b.getindex()) + ")",
+    return infer_generic(lambda pre, cons : ForwardBackward("backward",pre,cons),
                   iteration,
                   b,
                   [lambda x: Len(i_bw_field)],
@@ -321,15 +422,16 @@ def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs):
                       lambda x: Val(i_bw_field),
                       lambda x: Beg(i_bw_field)
                   ],
-                  kbs
+                  kbs,
+                  applied_rules
                   )
 
 
-def infer_join(iteration, b, kb_old, kb_last_round, kb_round, kbs):
+def infer_join(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_rules):
     i_jo_field = next_field(b.field, add_some(1))
     if not i_jo_field:
         return
-    infer_generic("join(" + str(b.getindex()) + ")",
+    return infer_generic(Join,
                   iteration,
                   b,
                   [lambda x: Beg(i_jo_field)],
@@ -339,18 +441,13 @@ def infer_join(iteration, b, kb_old, kb_last_round, kb_round, kbs):
                   [
                       lambda x: Len(x.field),
                   ],
-                  kbs
+                  kbs,
+                  applied_rules
                   )
 
 
-def infer_jump_right(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
-    infer_generic("jump_right(" +
-                  (",".join(
-                      map(str,[
-                        ptr.field.offset(),
-                        ptr.field.landing(),
-                        ptr.getindex()])
-                  )) + ")",
+def infer_jump_right(iteration, ptr, kb_old, kb_last_round, kb_round, kbs, applied_rules):
+    return infer_generic(lambda pre, cons: Jump("right", pre, cons),
                   iteration,
                   ptr,
                   [
@@ -363,21 +460,13 @@ def infer_jump_right(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
                   [
                       lambda x: Beg(ptr.field.land)
                   ],
-                  kbs
+                  kbs,
+                  applied_rules
                   )
 
 
-def infer_jump_left(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
-    infer_generic("jump_left(" +
-                  (",".join(
-                        map(str,
-                            [
-                                ptr.field.offset(),
-                                ptr.field.landing(),
-                                ptr.getindex()   
-                            ])
-                            )
-                      ) + ")",
+def infer_jump_left(iteration, ptr, kb_old, kb_last_round, kb_round, kbs, applied_rules):
+    return infer_generic(lambda pre, cons: Jump("left", pre, cons),
                   iteration,
                   ptr,
                   [
@@ -390,7 +479,8 @@ def infer_jump_left(iteration, ptr, kb_old, kb_last_round, kb_round, kbs):
                   [
                       lambda x: Beg(ptr.field.origin)
                   ],
-                  kbs
+                  kbs,
+                  applied_rules
                   )
 
 def next_level(increment):
@@ -407,7 +497,7 @@ def infer_replen(iteration, rep, kb_old, kb_last_round, kb_round, kbs):
     below_end_begin = next_field(rep, next_level(shifted))
     if not (end_begin and below_end_begin and below_start_begin):
         return
-    infer_generic("rep_len(" + str(rep.getindex()) + ")",
+    infer_generic(RepLen,
                   iteration,
                   rep,
                   [
@@ -459,23 +549,41 @@ def saturate_round(round_counter, kb_old, kb_last_round):
     inference_funcs =[(infer_forward    , begins),
                       (infer_backward   , begins),
                       (infer_join       , begins),
+                      # Jumps should be executed separately, if none of 
+                      # the above inferences resulted in new facts.
                       (infer_jump_left, pointers),
                       (infer_jump_right , pointers),
                       (infer_replen     , reps)]
     print("** In round **" + str(round_counter))
-    def apply_inference(inf_fun):
-        for responsible in inf_fun[1][0]:
+    # Below, the functor that runs the inference.
+    # For a rule with n premises, it fires executes twice
+    # with the responsibility *singleton* draw from, respectively,
+    # the last round and the older.
+    # The two invocations differ in where the rest of the premises might be found:
+    # the second invocation accounts the configuration
+    #  responsible in old kb, 
+    def apply_inference(inf_fun, applied_rules):
+        
+        for responsible in inf_fun[1][0]: ## responsible in last round, 
+            # so I am sure that whatever is inferred is new
             inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
-                       kb_round, [kb_old, kb_last_round])
-        for responsible in inf_fun[1][1]:
+                       kb_round, [kb_old, kb_last_round], applied_rules)
+        for responsible in inf_fun[1][1]: ## responsible in old rounds. 
+            # Then at least one of the other premises must be draw from the last round.
+            # Not all in kb_old, though!
+            # FIXME Not sure if this becomes an error but I added kb_last_round
             inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
-                       kb_round, [kb_old])
-    
+                       kb_round, [kb_old, kb_last_round], applied_rules)
+    applied_rules = ApplicationRound()
     for func in inference_funcs  :
-        apply_inference(func)
+        # func is a pair (inference_function, 
+        #                   ([predicates inferred in last round]
+        #                    [predicates inferred before last round])
+        #                )
+        apply_inference(func, applied_rules)
     
     learn(kb_old,kb_last_round)
-
+    
     return kb_round
 
 field_hash = HashTree()
@@ -610,9 +718,12 @@ def mu_labeling(fields, ind=[], scopes={},
         index += 1
     return initial
 
-beginning = F()
-layout = [beginning, P(None, 3), P(None, 2), V()]
+unknown = V()
+second = P(unknown, 1)
+beginning = P(second, 2)
 
+layout = [beginning, second, unknown]
+cost_model = CostModel(layout[0])
 
 predicates = mu_labeling(layout)
 predicates.append(Beg(beginning))
@@ -623,35 +734,36 @@ initial_nodes = [u for (u, d) in inference_graph.nodes(data=True) if
                  d['kind'] == 'initial']
  
 old = saturate(predicates)
-
-pos = nx.pydot_layout(inference_graph)  # positions for all nodes
-
-rul_nodes = [(u, d) for (u, d) in inference_graph.nodes(data=True) if
-             d['kind'] == 'rule']
-label_dict = {}
-for (u, d) in rul_nodes:
-    label_dict[u] = d['label']
-rul_nodes = [list(l) for l in zip(*rul_nodes)][0]
-pred_nodes = [u for (u, d) in inference_graph.nodes(data=True) if
-              d['kind'] == 'predicate']
-
-# nodes
-nx.draw_networkx_nodes(inference_graph, pos, node_size=70, nodelist=rul_nodes)
-nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='yellow',
-                       nodelist=pred_nodes)
-nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='blue',
-                       nodelist=initial_nodes)
-
-# edges
-nx.draw_networkx_edges(inference_graph, pos,
-                       width=1)
-# labels
-nx.draw_networkx_labels(inference_graph, pos, labels=label_dict,
-                        font_color='yellow', font_size=30,
-                        font_family='sans-serif')
-nx.draw_networkx_labels(inference_graph, pos, font_size=20,
-                        font_family='sans-serif')
-
-plt.axis('off')
-# plt.savefig("weighted_graph.png") # save as png
+# 
+# pos = nx.spring_layout(inference_graph)  # positions for all nodes
+# 
+# rul_nodes = [(u, d) for (u, d) in inference_graph.nodes(data=True) if
+#              d['kind'] == 'rule']
+# label_dict = {}
+# for (u, d) in rul_nodes:
+#     label_dict[u] = d['label']
+# rul_nodes = [list(l) for l in zip(*rul_nodes)][0]
+# pred_nodes = [u for (u, d) in inference_graph.nodes(data=True) if
+#               d['kind'] == 'predicate']
+# 
+# # nodes
+# nx.draw_networkx_nodes(inference_graph, pos, node_size=70, nodelist=rul_nodes)
+# nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='yellow',
+#                        nodelist=pred_nodes)
+# nx.draw_networkx_nodes(inference_graph, pos, node_size=70, node_color='blue',
+#                        nodelist=initial_nodes)
+# 
+# # edges
+# nx.draw_networkx_edges(inference_graph, pos,
+#                        width=1)
+# # labels
+# nx.draw_networkx_labels(inference_graph, pos, labels=label_dict,
+#                         font_color='yellow', font_size=10,
+#                         font_family='sans-serif')
+# nx.draw_networkx_labels(inference_graph, pos, font_size=10,
+#                         font_color='blue', font_family='sans-serif')
+# 
+# plt.axis('off')
+# #plt.savefig("weighted_graph.png") # save as png
 # plt.show() # display
+dot_printer.write("prova")
