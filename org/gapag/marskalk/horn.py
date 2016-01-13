@@ -108,11 +108,9 @@ class CostModel:
         # a) results in the least bufferization (here the current position should play a role)
         # b) pointer is to be kept in memory the least possible number of rounds
         # Note that this does not give a deterministic choice.
-        # TODO Study the various configurations that might arise. It seems 
+        # Study the various configurations that might arise. It seems 
         # no optimal method exists.
-        #
-        #
-        
+
         #1 compute the number of elements spanned by the pointer
         pointer_field = rule.other_premises[0].field
         launch_field = rule.other_premises[1].field.getindex()
@@ -122,7 +120,7 @@ class CostModel:
         #2 compute how many of them are unknown
         unknowns = 0
         for kb_i in kbs:
-            all_values = between(kb_i['Val'], launch_field, landing_field)
+            all_values = between(kb_i.hashes['Val'], launch_field, landing_field)
             unknowns += len(all_values)
         right_jump_cost += unknowns
         # Is the pointer outside the current position?
@@ -130,6 +128,21 @@ class CostModel:
         return right_jump_cost
     
     def estimate_left_jump(self, rule, kbs):
+        # The number of elements spanned by the pointer
+        # are not counted since they are already in memory.
+        pointer_field = rule.other_premises[0].field
+        launch_field = rule.other_premises[1].field.getindex()
+        landing_field = rule.consequences[0].field.getindex()
+        left_jump_cost = 0
+        #2 compute how many unknown elements there are
+        unknowns = 0
+        for kb_i in kbs:
+            all_values = between(kb_i.hashes['Val'], launch_field, landing_field)
+            unknowns += len(all_values)
+        left_jump_cost += unknowns
+        # Is the pointer outside the current position?
+        left_jump_cost += self.keep_in_memory_contribution(pointer_field)
+        return left_jump_cost
         pass
     
     def __init__(self, init_field):
@@ -142,25 +155,23 @@ class CostModel:
             return rule
         elif isinstance(rule, Jump):
             ru = rule
+            if applied.has_jumped(rule):
+                ru = None
             # 1) If I jumped right, DO NOT jump left 
             # 4) The latest I jump right, the better.
             # 5) Do not jump right if you can go forward. (==> do not jump right if you made a forward)
-            if(rule.name == 'jump_right'):
-                if applied.has_forward() :
-                    ru = None
+            elif rule.name == 'jump_right' :
+                #if applied.has_forward() :
+                #    ru = None
                 cost = cost_model.estimate_right_jump(rule, kbs)
                 heappush(self.pending_right_jumps,(cost, rule))
                  
             # 1) If I jumped left, DO NOT jump right
             # 3) The earlier I jump left, the better.
             # 6) Do not jump left if you can go backward (==> do not jump left if you made a backward).        
-            elif rule.name == 'jump_left':
-                if applied.has_backward():
-                    ru = None
+            elif rule.name == 'jump_left' :
                 cost = cost_model.estimate_left_jump(rule, kbs)
                 heappush(self.pending_left_jumps,(cost, rule)) 
-            if applied.has_jumped(rule):
-                ru = None
             return ru
         elif isinstance(rule, RepLen):
             return rule
@@ -316,7 +327,7 @@ def infer_generic(rule_constructor,
     :param kb_round: this round's inferences
     :param consequences: list of functions that create rhs predicates taking first_premise as input 
     :param kbs: list of knowledge fragments to be searched for other_premises
-    :return: 
+    :return: the inferred predicates
     """
     concrete_premises = premise_check(responsible_premise, other_premises, kbs)
     if concrete_premises:
@@ -324,29 +335,25 @@ def infer_generic(rule_constructor,
         concrete_consequences = create_consequences(responsible_premise,
                                                     consequences)
         rule = rule_constructor(all_premises, concrete_consequences)
-        # here cost model should decide whether to apply now or later the rule
-        # note: for jumps, i need to wait until all costs are evaluated.
-        # Since I fire all forward and backward first, at this point 
-        # I should know how much all the pointers I found should cost.
         appliable_rule = cost_model.cost(rule, applied_rules, kbs)
-        if appliable_rule :
+        ## What you have below should be executed by RepLen, Forward, Join and Backward
+        ## but NOT by jump. Note: the above rule has already put in the heap
+        ## the jumps.
+        if appliable_rule and not isinstance(rule, Jump):
             inferred = add_inferences(appliable_rule,
                                       kb_old, kb_last_round,
                                       kb_round)
             if not inferred:
-                return
-            else :
-                ## TODO for jumps the mechanism must be rethought
-                # currently, the first appliable jump is executed.
-                # What I have now is that this function computes the 
-                # cost of the application of a rule and applies it immediately.
-                # (So the cost does not actually make any difference.)
-                 
+                return []
+            else : 
                 applied_rules.was_applied(rule, cost_model)
                 print('I applied '+str(rule))
                 print(map(str,inferred))
                 return inferred
-        
+        else :
+            return []
+    else:
+        return []
         # inferred_nodes = map(str, inferred)
         # premises_nodes = map(str, all_premises)
         # predicate_nodes = inferred_nodes + premises_nodes
@@ -389,7 +396,7 @@ def infer_forward(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_ru
 
     i_fw_field = next_field(b.field, add_some(1))
     if not i_fw_field:
-        return
+        return []
     return infer_generic(lambda pre, cons : ForwardBackward("forward",pre,cons),
                   iteration,
                   b,
@@ -410,7 +417,7 @@ def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_r
     # creation of second consequence, this is included in a function
     i_bw_field = next_field(b.field, add_some(-1))
     if not i_bw_field:
-        return
+        return []
     return infer_generic(lambda pre, cons : ForwardBackward("backward",pre,cons),
                   iteration,
                   b,
@@ -430,7 +437,7 @@ def infer_backward(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_r
 def infer_join(iteration, b, kb_old, kb_last_round, kb_round, kbs, applied_rules):
     i_jo_field = next_field(b.field, add_some(1))
     if not i_jo_field:
-        return
+        return []
     return infer_generic(Join,
                   iteration,
                   b,
@@ -496,8 +503,8 @@ def infer_replen(iteration, rep, kb_old, kb_last_round, kb_round, kbs):
     below_start_begin = next_field(rep, next_level(same)) 
     below_end_begin = next_field(rep, next_level(shifted))
     if not (end_begin and below_end_begin and below_start_begin):
-        return
-    infer_generic(RepLen,
+        return []
+    return infer_generic(RepLen,
                   iteration,
                   rep,
                   [
@@ -549,11 +556,9 @@ def saturate_round(round_counter, kb_old, kb_last_round):
     inference_funcs =[(infer_forward    , begins),
                       (infer_backward   , begins),
                       (infer_join       , begins),
-                      # Jumps should be executed separately, if none of 
-                      # the above inferences resulted in new facts.
-                      (infer_jump_left, pointers),
-                      (infer_jump_right , pointers),
                       (infer_replen     , reps)]
+    jump_inference_funcs = [(infer_jump_left, pointers, cost_model.pending_left_jumps),
+                            (infer_jump_right , pointers, cost_model.pending_right_jumps)]
     print("** In round **" + str(round_counter))
     # Below, the functor that runs the inference.
     # For a rule with n premises, it fires executes twice
@@ -563,24 +568,44 @@ def saturate_round(round_counter, kb_old, kb_last_round):
     # the second invocation accounts the configuration
     #  responsible in old kb, 
     def apply_inference(inf_fun, applied_rules):
-        
+        inferred = []
         for responsible in inf_fun[1][0]: ## responsible in last round, 
             # so I am sure that whatever is inferred is new
-            inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
+            something = inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
                        kb_round, [kb_old, kb_last_round], applied_rules)
+            inferred += something
         for responsible in inf_fun[1][1]: ## responsible in old rounds. 
             # Then at least one of the other premises must be draw from the last round.
             # Not all in kb_old, though!
             # FIXME Not sure if this becomes an error but I added kb_last_round
-            inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
+            something = inf_fun[0](round_counter, responsible, kb_old, kb_last_round,
                        kb_round, [kb_old, kb_last_round], applied_rules)
+            inferred += something
+        return inferred
+    
     applied_rules = ApplicationRound()
+    inferred_simple = []
     for func in inference_funcs  :
         # func is a pair (inference_function, 
         #                   ([predicates inferred in last round]
         #                    [predicates inferred before last round])
         #                )
-        apply_inference(func, applied_rules)
+        inferred_simple += apply_inference(func, applied_rules)
+    
+    if not inferred_simple: # there were no inferences involving join, replen, backward or forward
+        for func in jump_inference_funcs:
+            apply_inference(func, applied_rules)
+            # Method 1 : try to fire all the available jumps
+            while func[2] :
+                rule = heappop(func[2])
+                inferred = add_inferences(rule[1], kb_old, kb_last_round, kb_round)
+                if inferred:
+                    applied_rules.was_applied(rule, cost_model)
+                    print('I applied '+str(rule[1]))
+                    print(map(str,inferred))
+                    break# method 2 : try to fire only the cheapest jump. Comment out, you get method 1 
+            # clean up the heap
+            del func[2][:]
     
     learn(kb_old,kb_last_round)
     
@@ -720,9 +745,9 @@ def mu_labeling(fields, ind=[], scopes={},
 
 unknown = V()
 second = P(unknown, 1)
-beginning = P(second, 2)
+beginning = P(second, 3)
 
-layout = [beginning, second, unknown]
+layout = [beginning, second, unknown, V()]
 cost_model = CostModel(layout[0])
 
 predicates = mu_labeling(layout)
