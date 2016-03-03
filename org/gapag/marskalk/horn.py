@@ -709,20 +709,20 @@ class LayoutError(Exception):
 
 
 def mu_labeling(fields, ind=[], scopes={},
-                pending_pointers=[], initial=[]):  # linearized=[]
+                pending_pointers=[], initial=[]):
     fields.append(End())
-    index = 0
+    
     scopes[len(ind) + 1] = fields
-    for f in fields:
+    for idx, f in enumerate(fields):
         if f.index:
             raise LayoutError("Cannot use a field object more than once")
-        f.index = ind + [index]
+        f.index = ind + [idx]
         pending_pointers = check_pending_pointers(pending_pointers, scopes, initial)
         # Case REPEAT
         if isinstance(f, R):
             # continue below
             initial.append(Rep(f))
-            mu_labeling(f.body, ind + [index], scopes, pending_pointers, initial)
+            mu_labeling(f.body, ind + [idx], scopes, pending_pointers, initial)
         # Case POINTER
         elif isinstance(f, P):
             initial.append(Len(f))
@@ -740,7 +740,6 @@ def mu_labeling(fields, ind=[], scopes={},
             pass
 
         insert(field_hash,f.getindex(),f)
-        index += 1
     return initial
 
 unknown = V()

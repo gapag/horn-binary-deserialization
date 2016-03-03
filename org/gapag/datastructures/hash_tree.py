@@ -176,9 +176,3 @@ def remove(tree, key):
     """
     pass
 
-# my_hash = HashTree()
-# insert(my_hash,[1,2,3],'pippone')
-# insert(my_hash,[1,2,2],'pippe')
-# insert(my_hash,[1,3],'teddy')
-# print(retrieve(my_hash, [1,2,3]))
-# print get_all_below(my_hash)
