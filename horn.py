@@ -140,37 +140,11 @@ engine = """
   =>
   (assert (repeat-not-bounded))
 )
-
-(deffunction test-all-unknown-lengths-were-found ()
-  (if
-      (any-factp ((?vv variable-not-found)) (eq 1 1));?first:index
-      then
-    FALSE
-    else
-    TRUE
-    )
-  )
-
-(deffunction test-all-repeats-were-bounded ()
-      (if
-      (any-factp ((?rep repeat-not-bounded)) (= 1 1))
-       then FALSE
-       else TRUE
-      )
-)
-
 (retract *)
 """
 
 epilogue = """
 (run)
-(if ( test-all-unknown-lengths-were-found ) then
-(printout t "1" crlf) else
-(printout t "0" crlf))
-
-(if ( test-all-repeats-were-bounded ) then
-(printout t "1" crlf) else
-(printout t "0" crlf))
 (facts)
 (exit)
 """
@@ -317,7 +291,7 @@ class HornBinDeserializationParser:
     def parsedef(self, str):
         self.parser().parseString(str)
         self.__duplicateAllRepeats()
-        self.__initPointers(pp.layout)
+        self.__initPointers(self.layout)
         return self.layout
         
     def __initPointers(self, l):
@@ -388,7 +362,7 @@ class PointerError(Exception):
     def __str__(self):
         return repr(self.value)
 
-def mu_labeling(fields, ind=[], scopes={},
+def mu_labeling(fields, field_hash, ind=[], scopes={},
                 pending_pointers=[], initial=[]):
     fields.append(End())
 
@@ -402,7 +376,7 @@ def mu_labeling(fields, ind=[], scopes={},
         if isinstance(f, R):
             # continue below
             initial.append(Rep(f))
-            mu_labeling(f.body, ind + [idx], scopes, pending_pointers, initial)
+            mu_labeling(f.body, field_hash, ind + [idx], scopes, pending_pointers, initial)
         # Case POINTER
         elif isinstance(f, P):
             initial.append(Len(f))
@@ -493,9 +467,50 @@ def arguments():
     parser.add_argument('-o', type=str, help='output file', default='output.clp')
     return parser.parse_args()
 
+def analyseSpec(spec, out):
+    pp = HornBinDeserializationParser()
+    layout = pp.parsedef(spec)
+    # if layout starts with a repetition or a varfield, reject immediately.
+    if not layout or layout == []:
+        print "Empty layout."
+        exit(0)
+    if isinstance(layout[0],(R,V)):
+        print "A layout starting with a v or []* cannot be deserialized"
+        exit(0)
+    field_hash = HashTree()
+    predicates = mu_labeling(layout, field_hash,[],{},[],[])
+    predicates.append(Beg(layout[0]))
+    clipsPreds = ""
+    for c in predicates:
+        clipsPreds += '\n'+str(c)
+
+    initialKnowledge = predicate.printFact('deffacts inp "%s %s" %s' % ("kb for", spec, clipsPreds))
+    initialize = "(watch activations)\n(watch facts)\n(reset)\n(run)\n"
+    unknowns = ""
+    if len(pp.unknownLengths) > 0:
+        for v in pp.unknownLengths:
+            unknowns += '\n'+predicate.printUnknownLength(v.getindex())
+        unknowns = predicate.printFact("assert "+unknowns)
+    with open(out,'w') as f:
+        f.write(engine+initialKnowledge+initialize+unknowns+epilogue)
+    with open("boot.clp",'w') as f:
+        f.write("(batch %s)\n"%out)
+    result = subprocess.check_output(["clips","-f","boot.clp"])
+    with open("result.out", 'w') as f:
+        f.write(result)
+    FOUND = 0
+    for k in reversed(result.split("\n")):
+        if k == "CLIPS> (facts)":
+            break
+        else:
+            if "variable-not-found" in k:
+                FOUND |= 1
+            elif "repeat-not-bounded" in k:
+                FOUND |= 2
+    return FOUND
+
 if __name__ == "__main__":
     args = arguments()
-    pp = HornBinDeserializationParser()
     if args.syntax:
         print syntax_help
         exit(0)
@@ -511,42 +526,11 @@ if __name__ == "__main__":
     out = args.o
     if not out:
         out = "output.clp"
-    
-    layout = pp.parsedef(spec)
-    # if layout starts with a repetition or a varfield, reject immediately.
-    if not layout or layout == []:
-        print "Empty layout."
-        exit(0)
-    if isinstance(layout[0],(R,V)):
-        print "A layout starting with a v or []* cannot be deserialized"
-        exit(0)
-    field_hash = HashTree()
-    predicates = mu_labeling(layout)
-    predicates.append(Beg(layout[0]))
-    clipsPreds = ""
-    for c in predicates:
-        clipsPreds += '\n'+str(c)
-     
-    initialKnowledge = predicate.printFact('deffacts inp "%s %s" %s' % ("kb for", spec, clipsPreds))
-    initialize = "(watch activations)\n(watch facts)\n(reset)\n(run)\n"
-    unknowns = ""
-    if len(pp.unknownLengths) > 0:
-        for v in pp.unknownLengths:
-            unknowns += '\n'+predicate.printUnknownLength(v.getindex())
-        unknowns = predicate.printFact("assert "+unknowns)
-    with open(out,'w') as f:
-        f.write(engine+initialKnowledge+initialize+unknowns+epilogue)
-    with open("boot.clp",'w') as f:
-        f.write("(batch %s)\n"%out)
-    result = subprocess.check_output(["clips","-f","boot.clp"])
-    with open("result.out", 'w') as f:
-        f.write(result)
-    for k in reversed(result.split("\n")):
-        if k == "CLIPS> (facts)":
-            break
-        else:
-            if "variable-not-found" in k:
-                print "Not deserializable: the length of a varfield was not computed."
-            elif "repeat-not-bounded" in k:
-                print "Not deserializable: a repeat field was not bounded."
+    result = analyseSpec(spec, out)
+    if result > 0:
+        print "Non deserializable layout %s" % spec
+    if result >= 1:
+        print "Some varfields are unbound."
+    if result >=2:
+        print "Some repetitions are unbound."
     print "Check result.out for the clips output and more detailled information."
