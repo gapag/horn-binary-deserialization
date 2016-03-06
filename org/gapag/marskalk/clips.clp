@@ -35,10 +35,10 @@
   (multislot index
 	     (type INTEGER)
 	     (default 0))
-  (multislot label
+  (multislot offset
 	     (type INTEGER)
 	     (default 0))
-  (slot length
+  (slot span
 	     (type INTEGER)
 	     (default 0))
 )
@@ -48,7 +48,7 @@
   (multislot index
 	     (type INTEGER)
 	     (default 0))
-    (slot length
+    (slot span
 	     (type INTEGER)
 	     (default 0))
 )
@@ -78,7 +78,7 @@
 
 
 (defrule count-right
-  (ptr (label ?ptrhead $?tail) (length ?l) (index $?label))
+  (ptr (offset ?ptrhead $?tail) (span ?l) (index $?label))
   (val (index $?label))
   (beg (index ?ptrhead $?tail))
   =>
@@ -86,7 +86,7 @@
 )
 
 (defrule count-left
-  (ptr (label ?ptrhead $?tail) (length ?l) (index  $?label))
+  (ptr (offset ?ptrhead $?tail) (span ?l) (index  $?label))
   (val (index $?label))
   (beg (index ?q&:(= ?q (+ ?ptrhead ?l)) $?tail))
 
@@ -95,12 +95,12 @@
 )
 
 (defrule enter-repeat
-  (repeat (index ?a $?rest )(length ?len) )
+  (repeat (index ?a $?rest )(span ?len) )
   (beg (index ?a $?rest))
   (beg (index ?q&:(= ?q (+ ?a 1)) $?rest))
   ;(val (index $?ptrlocation)) ; I think these two predicates are unnecessary, I thought about them when I did not understand the preprocessing step
-  ;(ptr (label ?before-repeat&:(<= ?before-repeat ?a) $?rest )
-  ;     (length ?ptrlen&:(> ?ptrlen (- ?a ?before-repeat))) ; I think should be > instead of >=
+  ;(ptr (offset ?before-repeat&:(<= ?before-repeat ?a) $?rest )
+  ;     (span ?ptrlen&:(> ?ptrlen (- ?a ?before-repeat))) ; I think should be > instead of >=
   ;     (index $?ptrlocation))
   =>
   (assert (beg  (index 0 ?a ?rest)))

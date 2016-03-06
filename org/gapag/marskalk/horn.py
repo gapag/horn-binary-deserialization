@@ -4,18 +4,19 @@ from org.gapag.datastructures.hash_tree import *
 from org.gapag.marskalk.predicate import Len, Beg, Val, Rep, Pointer
 import clips
 from pyparsing import *
+import copy
 
 class HornBinDeserializationParser:
     def __init__(self):
         self.nameDict = {}
         self.depends = {}
-        self.layout = ([],[])
+        self.layout = []
         self.scopes = []
         self.scopes.append(self.layout)
     
     def levelDown(self, pred):
         print "going down"
-        newLayout = ([],[])
+        newLayout = []
         self.scopes.append(newLayout)
         self.layout = newLayout
         
@@ -25,7 +26,7 @@ class HornBinDeserializationParser:
         self.layout = self.scopes[-1]
         try:
             id = ob['id']
-            self.depends[id] = popped[1]
+            self.depends[id] = popped[1] # this depends stinks. What about more nested ids?
         except KeyError:
             pass
         return popped
@@ -51,16 +52,17 @@ class HornBinDeserializationParser:
                 elif key=='r':
                     ob = pred.r
                     body = self.levelUp(ob)
-                    fi = R(body[0])
+                    fi = R(body)
                 else:
                     ob = {}
                 try :
-                    identity = ob['id']
-                    self.layout[1].append(identity)
-                    self.addToDict(ob.id[0], fi)
+                    identity = ob['id'][0]
+                    self.addToDict(identity, fi)
                 except KeyError:
+                    identity = ''
                     pass
-                self.layout[0].append(fi)
+                finally:
+                    self.layout.append((identity, fi))
                 return fi                
             except KeyError:
                 pass
@@ -107,24 +109,61 @@ class HornBinDeserializationParser:
     def  anyField(self, f):
         return self.field() | self.varfield() | self.pointer() | f
     
+    def __duplicateAllRepeats(self):
+        for (id, item) in self.layout:
+            if isinstance(item, R):
+                self.__duplicateRepeat(item)
+    
+    def __duplicateRepeat(self, repeat):
+        childrenStack = []
+        # first, make a deep copy of this repeat
+        dupe = copy.deepcopy(repeat.body)
+        # make a dictionary label-object of this level
+        dupeDict = dict(dupe)
+        for (idx, (id, ob)) in enumerate(dupe):
+            if isinstance(ob, R):
+                # if there is a repeat, it needs to be duped too.
+                childrenStack.append((idx, id, ob))
+                pass
+            elif isinstance(ob, tuple):
+                refers = ob[1]
+                try:
+                    newObj = dupeDict[refers]
+                    newKey = '1_'+refers
+                    self.nameDict[newKey] = newObj
+                    dupe[idx] = (id,(ob[0],newKey))
+                    objInd = dupe.index((refers,newObj))
+                    dupe[objInd] = (newKey, newObj)
+                except Exception as e:
+                    # ptr does not point to an obj at the same level, no need to
+                    # dupe the key
+                    print e
+                    pass
+        repeat.body = dupe + repeat.body
+        # take care of other repetitions, replacing them in the duped half.
+        for (idx, id, ob) in childrenStack:
+            newRepeat = self.__duplicateRepeat(ob)
+            repeat.body[idx] = (id, newRepeat)
+        return repeat
+    
     def parsedef(self, str):
         self.parser().parseString(str)
-        self.__initPointers(pp.layout[0])
-        return self.layout[0]
+        self.__duplicateAllRepeats()
+        self.__initPointers(pp.layout)
+        return self.layout
         
     def __initPointers(self, l):
-        for idx, fi in enumerate(l):
-            try:
-                if isinstance(fi[0], P):
-                    fi[0].origin = self.nameDict[fi[1]]
-                    l[idx] = fi[0]
-            except KeyError:
-                print "invalid reference to non-existent field %s" % fi[1]
-            except AttributeError:
-                print "not a tuple"
-            finally:
-                if isinstance(fi, R):
-                    self.__initPointers(fi.body)
+        for idx, (la, fi) in enumerate(l):
+            if isinstance(fi, tuple):
+                try:
+                    wl = fi[1]
+                    fi[0].origin = self.nameDict[wl]
+                    fi = fi[0]
+                except KeyError: 
+                    raise LayoutError("invalid reference to non-existent field %s" % wl)
+            elif isinstance(fi, R):
+                self.__initPointers(fi.body)
+            l[idx] = fi
 
 class Field:
 
@@ -252,10 +291,12 @@ field_hash = HashTree()
 
 
 pp = HornBinDeserializationParser()
-layout = pp.parsedef("[v<truzzi>f(| <truzzi> |> 4|)]*")
+layout = pp.parsedef("[v<caputo>(| <caputo> |> 1|)]*")
 predicates = mu_labeling(layout)
 predicates.append(Beg(layout[0]))
 
+for pre in predicates:
+    print pre
 print os.getcwd()
 
 # 
