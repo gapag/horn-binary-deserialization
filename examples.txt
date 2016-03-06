@@ -1,95 +1,194 @@
 #s(1,5),f,f,f,r(v,f),s(5,2), v 
 (<one> -> 5) f<one> f f [v f]* (<me> -> 2)<me> v
 
-//"ripetizione" | [s(0, 3), r(s(1,2),f)]
-//"ripSem" | [s(1, 3), f , r(f,f)]
-"ripSem_nocount" | [ f , r(f,f)]
-"ripSem_nocount_disaster" | [ s(0, 5), f , r(f,v,f)]
+#ripetizione | [s(0, 3), r(s(1,2),f)]
+(<ptr> -> 3)<ptr>   [(<rep> -> 2) f]<rep>*
 
-//"ripSem1" | [s(0, 3), r(f,f),f]
-"ripSem1_nocount" | [s(0, 3), r(f,f),f]
-//"noRipSem" | [s(0, 3), f,f]
+#"ripSem" | [s(1, 3), f , r(f,f)]
+(fi -> 3) f<fi> [f f]*
+
+#"ripSem_nocount" | [ f , r(f,f)]
+f [f f]*
+
+#"ripSem_nocount_disaster" | [ s(0, 5), f , r(f,v,f)]
+(<me> -> 5)<me> f [f v f]*
+
+#"ripSem1" | [s(0, 3), r(f,f),f]
+(<me> -> 3)<me> [f f]* f
+
+# ripSem1_nocount" | [s(0, 3), r(f,f),f]
+(<me> -> 3)<me> [f, f] f
+
+#"noRipSem" | [s(0, 3), f,f]
+(<me> -> 3) f f
     
-"ambiguous" | [p([1], 5), f, f, f, r(v, f), p([5], 2), v]
-"ripSem" | [p([1], 3), f , r(f,f)]
-"ripSem_nocount" | [ f , r(f,f)]
-"ripSem_nocount_disaster" | [ p([0], 5), f , r(f,v,f)]
+#"ambiguous" | [p([1], 5), f, f, f, r(v, f), p([5], 2), v]
+(<fi> -> 5) f<fi> f f [v f]* (<me> -> 2)<me> v
 
-"ripetizione" | [p([0], 2), r(p([1],2),f)]
-"ripSem1" | [p([0], 3), r(f,f),f]
-"ripSem1_nocount" | [p([0], 3), r(f,f),f]
-"noRipSem" | [p([0], 3), f,f]
-"dangerous" | [p([0], 3), r(v,p([0,1],1),v,p([2,1],1)), f,f]
-/*"ambiguous" | [p([1],5),f,f,f,r(v,f),p([5],2), v ]
-"ripetizione" | [p([0], 2), r(p([1],2),f)]
-"ripSem" | [p([1], 3), f , r(f,f)]
-"ripSem_nocount" | [ f , r(f,f)]
+#"ripetizione" | [p([0], 2), r(p([1],2),f)]
+(<ptr> -> 2)<ptr>   [(<rep> -> 2) f]<rep>*
+
+#"dangerous" | [p([0], 3), r(v,p([0,1],1),v,p([2,1],1)), f,f]
+(<me> -> 3)<me> [v<i> (<i> -> 1) v<j> (<j> -> 1)] f f
+
+#"ripSem" | [p([1], 3), f , r(f,f)]
+(<him> -> 3) f<him> [f,f]*
+
+#"ripSem_nocount" | [ f , r(f,f)]
+f [f f]*
+
 "ripSem_nocount_disaster" | [ p([0], 5), f , r(f,v,f)]
-"ripSem1" | [p([0], 3), r(f,f),f]
-"ripSem1_nocount" | [p([0], 3), r(f,f),f]
-"noRipSem" | [p([0], 3), f,f]
+(<me> -> 5)<me> f [f v f]*
      
-[f,s(1,3),f, v, f],
+# [f,s(1,3),f, v, f],
+f (<me> -> 3)<me> f v f
 
-[f, f, v, c, f],
-[v,f,c],
+# [s(0,2),v,s(3,1),v],
+(<me> -> 2)<me> v (<him> -> 1) v<him>
 
-[s(0,2),v,s(3,1),v],
-[s(0,4),s(3,1),v,v],
+# [s(0,4),s(3,1),v,v],
+(<me> -> 4)<me>  (<him> -> 1) v v<him>
 
-[s(0,4),v,v, s(2,1)],
-[s(1,5), v, v, s(2,3), f, f, f, f, f,s(2,1)],
-[s(1,9), v, v, s(2,3), f, f, f, f, f,s(2,1)],
-[s(1,5), v, s(2,2), v, f ,v, s(2,4)]
-[s(1,8), v, s(2,2), v, f , f ,f, f ,f, f , s(2,4)]
-[s(1,8), f , f ,f, v, f ,f, f,f,f,f]
-[s(1,5), f, f, v, f , f]*/
-[s(0,4), v, f, v, f, s(2,3)]
+#[s(0,4),v,v, s(2,1)],
+(<me> -> 4)<me> v v<him> (<him> -> 1)
+ 
+# [s(1,5), v, v, s(2,3), f, f, f, f, f,s(2,1)],
+(<him> ->5 ) v<him> v<her> (<her> -> 3) f f f f f (<her> -> 1)
 
-[s(3,1),s(2,1), v, v ]*/
-[s(2,5),f,f,s(5,2), v, f, v ]
+# [s(1,9), v, v, s(2,3), f, f, f, f, f,s(2,1)],
+(<him> -> 9) v<him> v<her> (<her> -> 3) f f f f f (<her> -> 1)
 
-[s(2,5),f,f,s(5,2), v, f, v ,f,f,f]
-[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
+#[s(1,5), v, s(2,2), v, f ,v, s(2,4)]
+(<him> -> 5) v (<me> -> 2)<me> v f v (<me> -> 4)
 
-[s(2,5),f,f,f,,v,s(5,2), v ]
-[s(2,5),f,f,f, v, v, s(5,2)]
-[s(4,1),f,f,s(6,1), v, f, v ]
+#[s(1,8), v, s(2,2), v, f , f ,f, f ,f, f , s(2,4)]
+(<him> -> 8) v<him> (<me> -> 2)<me> v f f f f f f (<me> -> 4)
 
-[s(0,4), v, v, s(2,1)]
-[s(3,1),s(2,1), f, f ]
-[s(1,1),v,s(3,1),v ]
-[s(1,1),v, f]
-[s(1,2),v, f]
-[s(0,2),v, f]
-[s(0,3),v, f]
-[s(1,1),v]
+#[s(1,8), f , f ,f, v, f ,f, f,f,f,f]
+(<him> -> 8) f<him> f f v f f f f f f
 
-[s(0,2),v]
-[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
-[s(0,6), v, f, v, f, s(2,3)]
-[f, f , s(0,6), v, f, v, f, s(2,3)]*/
-[f, s(2,3),f,v,v,s(3,1)]
-[s(6,3), f, f, s(6,3), f,f,v, f,f]
-[s(6,3), f, f, s(6,1), f,f,v, f,f]
-[s(6,5), f, f, f, f,f,v, f,f,f, s(6,3)]
-[s(6,5), f, f, f, f,f,v,f,f,f,s(6,2)]
-[s(6,1), f, f, s(6,3), f,f,v, f,f]
+#[s(1,5), f, f, v, f , f]
+(<him> -> 5) f<him> f v f f 
 
-[s(1,9), v, v, s(2,4), f, v, f, f, f,s(2,1)]
-[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
-[s(0,8),f,f, v,f,f, f, v, f, s(6,3)]
-[s(0,8),f,f, v,f,v, f, v, s(5,2), s(6,3)]
-[s(0,11),s(1,3),v,v,f,v,f,f,f,v,s(7,4),s(2,1),f]
-[s(0,12),s(1,7),s(1,6),s(1,10),s(1,11),f,v,v,f,f,v,v]
-[f, s(1,5), f,f, s(1,5),v,f]
-[f, s(1,5),f,f, f,f, f,f,f,f]
-[s(0,10),v,v,f,s(5,1), v, f, s(2,2),f,v,s(3,4)]
-[f, f , s(0,6), v, f, v, f, s(2,3)]
-[s(1,5),f,f,f,r(v,f),s(5,2), v ]
+#[s(0,4), v, f, v, f, s(2,3)]
+(<me> -> 4)<me> v f<him> v f (<him> -> 3)
+
+#[s(3,1),s(2,1), v, v ]
+(<him> -> 1) (<her> -> 1) v<her> v<him>
+
+#[s(2,5),f,f,s(5,2), v, f, v ]
+(<him> -> 5) f f<him> (<her> -> 2) v f<her> v
+
+#[s(2,5),f,f,s(5,2), v, f, v ,f,f,f]
+(<him> -> 5) f f<him> (<her> -> 2) v f<her> v f f f
+
+#[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
+(<him> -> 7) f f<him> (<her> -> 2) v f<her> v f f f
+
+#[s(2,5),f,f,f,,v,s(5,2), v ]
+(<him> -> 5) f f<him> f v (<me> -> 2)<me> v 
+
+#[s(2,5),f,f,f, v, v, s(5,2)]
+(<him> ->5) f f<him> f v v<her> (<her> -> 2) 
+
+#[s(4,1),f,f,s(6,1), v, f, v ]
+(<him> -> 1) f f (<her> -> 1) v<him> f v<her>
+
+#[s(0,4), v, v, s(2,1)]
+(<me> -> 4)<me> v v<her> (<her> -> 1) 
+
+#[s(3,1),s(2,1), f, f ]
+(<him> -> 1) (<her> -> 1) f<her> f<him>
+
+#[s(1,1),v,s(3,1),v ]
+(<him> -> 1) v<him> (<her> -> 1) v<her>
+
+#[s(1,1),v, f]
+(<him> -> 1) v<him> f
+
+#[s(1,2),v, f]
+(<him> -> 2) v<him> f
+
+#[s(0,2),v, f]
+(<me> -> 2)<me> v f
+
+#[s(0,3),v, f]
+(<me> -> 3)<me> v f
+
+#[s(1,1),v]
+(<him> -> 1) v<him>
+
+#[s(0,2),v]
+(<her> -> 2) v<her>
+
+#[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
+(<him> -> 7) f f<him> (<her> -> 2) v f<her> v f f f
+
+#[s(0,6), v, f, v, f, s(2,3)]
+(<me> -> 6)<me> v f<her> v f (<her> -> 3)
+
+#[f, f , s(0,6), v, f, v, f, s(2,3)]
+f<him> f (<him> -> 6)<it> v f v f (<it> -> 3) 
+
+#[f, s(2,3),f,v,v,s(3,1)]
+f (<him> -> 3) f<him> v<her> v (<her> -> 1) 
+
+#[s(6,3), f, f, s(6,3), f,f,v, f,f]
+(<him> -> 3) f f (<him> -> 3) f f v<him> f f
+
+#[s(6,3), f, f, s(6,1), f,f,v, f,f]
+(<him> -> 3) f f (<him> -> 1) f f v<him> f f
+
+#[s(6,5), f, f, f, f,f,v, f,f,f, s(6,3)]
+(<him> -> 5) f f f f f v<him> f f f (<him> -> 3)
+
+#[s(6,5), f, f, f, f,f,v,f,f,f,s(6,2)]
+(<him> -> 5) f f f f f v<him> f f f (<him> -> 2)
+
+#[s(6,1), f, f, s(6,3), f,f,v, f,f]
+(<him> -> 1) f f (<him> -> 3) f f v<him> f f
+
+#[s(1,9), v, v, s(2,4), f, v, f, f, f,s(2,1)]
+(<him> -> 9) v<him> v<her> (<her> -> 4) f v f f f (<her> -> 1)
+
+#[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
+(<him> -> 7) f f<him> (<her> -> 2) v f<her> v f f f
+
+#[s(0,8),f,f, v,f,f, f, v, f, s(6,3)]
+(<me> -> 8)<me> f f v f f f<him> v f (<him> -> 3)
+
+#[s(0,8),f,f, v,f,v, f, v, s(5,2), s(6,3)]
+(<me> -> 8)<me> f f v f v<him> f<her> v (<him> -> 2) (<her> -> 3)
+
+#[s(0,11),s(1,3),v,v,f,v,f,f,f,v,s(7,4),s(2,1),f]
+(<me> -> 11)<me> (<first> -> 3)<first> v<gimme> v f v f f<gimmes> f v (<gimmes>-> 4) (<gimme> -> 1) f
+
+#[s(0,12),s(1,7),s(1,6),s(1,10),s(1,11),f,v,v,f,f,v,v]
+(<me> -> 12)<me> (<myself> -> 7)<myself> (<myself> -> 6) (<myself> -> 10) (<myself> -> 11) f v v f f v v
+
+#[f, s(1,5), f,f, s(1,5),v,f]
+f (<me> -> 5)<me> f f (<me> -> 5) v f
+
+#[f, s(1,5),f,f, f,f, f,f,f,f]
+f (<me> -> 5)<me> f f f f f f f f
+
+#[s(0,10),v,v,f,s(5,1), v, f, s(2,2),f,v,s(3,4)]
+(<me> -> 10)<me> v v<him> f<her> (<it> -> 1) v<it> f (<him> -> 2) f v (<her> -> 4)  
+
+#[f, f , s(0,6), v, f, v, f, s(2,3)]
+f<him> f (<him> -> 6)<me> v f v f (<me> -> 3) 
+
+#[s(1,5),f,f,f,r(v,f),s(5,2), v ]
+(<him> -> 5) f<him> f f [v f]* (<me> -> 2)<me> v
     
-[s(0,4),v,s(3,1),v],
-[f, f, f, c, v],
-[s(0,2),v,v, s(2,1)],
-[f, s(2,4), v, v,f, v, f, s(3,1)],
-[s(2,1),s(5,1), v, v,f, v, f]
+#[s(0,4),v,s(3,1),v],
+(<me> -> 4)<me> v (<him> -> 1) v<him>
+
+#[s(0,2),v,v, s(2,1)],
+(<me> -> 2)<me> v v<him> (<him> -> 1) 
+
+#[f, s(2,4), v, v,f, v, f, s(3,1)],
+f (<him> -> 4) v<him> v<her> f v f (<her> -> 1)
+
+#[s(2,1),s(5,1), v, v,f, v, f]
+(<him> -> 1) (<her> -> 1) v<him> v v f v<her> f

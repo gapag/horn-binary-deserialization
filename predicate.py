@@ -61,7 +61,7 @@ class Rep(Predicate):
     def __str__(self):
         return printFact("repeat %s %s" % 
                               (printindex(self.getindex()), 
-                               printlength(len(self.field.body))))
+                               printlength(len(self.field.body)-1)))
 
     def __init__(self, field):
         Predicate.__init__(self, field)

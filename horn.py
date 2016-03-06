@@ -112,6 +112,20 @@ engine = """
   (assert (replen (index ?a $?rest)))
 )
 
+(defrule enter-repeat-from-left
+  (repeat (index ?a $?rest )(span ?len) )
+  (beg (index ?a $?rest))
+  =>
+  (assert (beg  (index 0 ?a ?rest)))
+)
+
+(defrule enter-repeat-from-right
+  (repeat (index ?a $?rest )(span ?len) )
+  (beg (index ?q&:(= ?q (+ ?a 1)) $?rest))
+  =>
+  (assert (beg (index ?len ?a ?rest)))
+)
+
 
 (deffacts initial-knowledge "Test"
   (beg (index 0))
