@@ -1,4 +1,3 @@
-
 class DotPrinter :
 
     dottext = []

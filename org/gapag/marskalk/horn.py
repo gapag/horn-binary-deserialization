@@ -1,13 +1,183 @@
-import os
-
-from org.gapag.datastructures.hash_tree import *
-from org.gapag.marskalk.predicate import Len, Beg, Val, Rep, Pointer
-import clips
+import argparse
+import subprocess
+from hash_tree import *
+from predicate import Len, Beg, Val, Rep, Pointer
 from pyparsing import *
+import predicate
 import copy
+
+engine = """
+(deftemplate beg
+  "Beginning of an item"
+  (multislot index
+    (type INTEGER)
+    (default  0 )
+    )
+)
+
+(deftemplate len
+  "Length of an item"
+  (multislot index
+    (type INTEGER)
+    (default  0 )
+    )
+)
+
+(deftemplate replen
+  "Length of repetition"
+  (multislot index
+    (type INTEGER)
+    (default  0 )
+    )
+)
+
+(deftemplate val
+  "value of an item"
+  (multislot index
+    (type INTEGER)
+    (default  0 )
+    )
+)
+
+(deftemplate ptr
+  "Pointer"
+  (multislot index
+         (type INTEGER)
+         (default 0))
+  (multislot offset
+         (type INTEGER)
+         (default 0))
+  (slot span
+         (type INTEGER)
+         (default 0))
+)
+
+(deftemplate repeat
+  "Repeat item"
+  (multislot index
+         (type INTEGER)
+         (default 0))
+    (slot span
+         (type INTEGER)
+         (default 0))
+)
+           
+
+(defrule read-and-forward
+  (beg (index ?id $?rest))
+  (len (index ?id $?rest))
+  =>
+  (assert (val (index ?id ?rest)))
+  (assert (beg (index (+ ?id 1) ?rest)))
+)
+
+(defrule join
+  (beg (index ?id $?rest))
+  (beg (index ?oid&:(= ?oid (+ ?id 1)) $?rest))
+  =>
+  (assert (len (index ?id ?rest)))
+)
+
+(defrule backward  
+  (len (index ?id $?rest))
+  (beg (index ?oid&:(= ?oid (+ ?id 1)) $?rest))
+  =>
+  (assert (beg (index ?id ?rest)))
+)
+
+
+(defrule count-right
+  (ptr (offset ?ptrhead $?tail) (span ?l) (index $?label))
+  (val (index $?label))
+  (beg (index ?ptrhead $?tail))
+  =>
+  (assert (beg (index (+ ?ptrhead ?l) ?tail)))
+)
+
+(defrule count-left
+  (ptr (offset ?ptrhead $?tail) (span ?l) (index  $?label))
+  (val (index $?label))
+  (beg (index ?q&:(= ?q (+ ?ptrhead ?l)) $?tail))
+  =>
+  (assert (beg (index ?ptrhead $?tail)))
+)
+
+(defrule enter-repeat
+  (repeat (index ?a $?rest )(span ?len) )
+  (beg (index ?a $?rest))
+  (beg (index ?q&:(= ?q (+ ?a 1)) $?rest))
+  =>
+  (assert (beg  (index 0 ?a ?rest)))
+  (assert (beg (index ?len ?a ?rest)))
+  (assert (replen (index ?a $?rest)))
+)
+
+
+(deffacts initial-knowledge "Test"
+  (beg (index 0))
+  (len (index 0))
+)
+
+(deftemplate unknownLength
+  "unknown length item"
+  (multislot index
+    (type INTEGER)
+    (default  0 )
+    )
+)
+
+(defrule check-all-variable-lengths-are-found
+  (unknownLength (index $?s))
+  (not (len (index $?s)))
+  =>
+  (assert (variable-not-found))
+)
+
+(defrule check-all-repeats-have-length
+  (unknownLength (index $?s))
+  (repeat (index $?s) )
+  (not (replen (index $?s)))
+  =>
+  (assert (repeat-not-bounded))
+)
+
+(deffunction test-all-unknown-lengths-were-found ()
+  (if
+      (any-factp ((?vv variable-not-found)) (eq 1 1));?first:index
+      then
+    FALSE
+    else
+    TRUE
+    )
+  )
+
+(deffunction test-all-repeats-were-bounded ()
+      (if
+      (any-factp ((?rep repeat-not-bounded)) (= 1 1))
+       then FALSE
+       else TRUE
+      )
+)
+
+(retract *)
+"""
+
+epilogue = """
+(run)
+(if ( test-all-unknown-lengths-were-found ) then
+(printout t "1" crlf) else
+(printout t "0" crlf))
+
+(if ( test-all-repeats-were-bounded ) then
+(printout t "1" crlf) else
+(printout t "0" crlf))
+(facts)
+(exit)
+"""
 
 class HornBinDeserializationParser:
     def __init__(self):
+        self.unknownLengths = []
         self.nameDict = {}
         self.depends = {}
         self.layout = []
@@ -15,20 +185,14 @@ class HornBinDeserializationParser:
         self.scopes.append(self.layout)
     
     def levelDown(self, pred):
-        print "going down"
         newLayout = []
         self.scopes.append(newLayout)
         self.layout = newLayout
         
     def levelUp(self, ob):
-        print "going up"
         popped = self.scopes.pop()
         self.layout = self.scopes[-1]
-        try:
-            id = ob['id']
-            self.depends[id] = popped[1] # this depends stinks. What about more nested ids?
-        except KeyError:
-            pass
+        
         return popped
     
     def addToLayout(self, *args):
@@ -40,11 +204,12 @@ class HornBinDeserializationParser:
                     ob = pred.p
                     refers = ob.offset[0]
                     fi = (P(None,ob.span), refers)
-                    # adds a pair (Ptr, name of the label) and itself if has an id 
+                    # adds a pair (Ptr, name of the label) and itself if has an id
+                    # todo: if 
                 elif key=='v':
                     ob = pred.v
                     fi = V()
-                    # adds a V() and it adds itself to the dictionary if it has an id
+                    self.unknownLengths.append(fi)
                 elif key=='f':
                     ob = pred.f
                     fi = F()
@@ -53,10 +218,13 @@ class HornBinDeserializationParser:
                     ob = pred.r
                     body = self.levelUp(ob)
                     fi = R(body)
+                    self.unknownLengths.append(fi)
                 else:
                     ob = {}
                 try :
                     identity = ob['id'][0]
+                    if key == 'p' and identity == fi[1]:
+                        fi = fi[0]
                     self.addToDict(identity, fi)
                 except KeyError:
                     identity = ''
@@ -96,14 +264,14 @@ class HornBinDeserializationParser:
         return self.absField("v")("v")
     
     def pointer(self):
-        return (self.s("(|")+ (self.identifier()("offset")) +self.s("|>")
+        return (self.s("(")+ (self.identifier()("offset")) +self.s("->")
                     + Word(nums)("span") 
-                +self.s("|)")+self.identDef())("p")
+                +self.s(")")+self.identDef())("p")
     
     def repetition(self):
         rep = Forward()
         rep << ((self.s("[").addParseAction(self.levelDown)+ OneOrMore(self.anyField(rep).setParseAction(self.addToLayout)) +self.s("]"))
-                +Optional(self.identDef())+self.s("*"))
+                +self.s("*")+Optional(self.identDef()))
         return rep("r")
     
     def  anyField(self, f):
@@ -158,6 +326,9 @@ class HornBinDeserializationParser:
                 try:
                     wl = fi[1]
                     fi[0].origin = self.nameDict[wl]
+                    # If pointer points to other pointer, unpack it from tuple.
+                    if isinstance(fi[0].origin, tuple):
+                        fi[0].origin = fi[0].origin[0]
                     fi = fi[0]
                 except KeyError: 
                     raise LayoutError("invalid reference to non-existent field %s" % wl)
@@ -260,7 +431,6 @@ def check_pending_pointers(pending_pointers, scopes, initial):
             filtered.append(f)
     return filtered
 
-
 def index_add(index, span, scopes):
     index_pos = index[-1]  # position of this field in its context
     context = scopes[len(index)]  # context of the field; a list of fields
@@ -272,7 +442,6 @@ def index_add(index, span, scopes):
         what_is_left = len(context) - index_pos-1
         span_left = span - what_is_left
         return index_add(index[:-1], span_left, scopes)
-
 
 def complete_pointer(f, scopes, initial):
     if len(f.offset()) <= len(f.index):  # must point to same or outer scope
@@ -287,61 +456,97 @@ def complete_pointer(f, scopes, initial):
 class LayoutError(Exception):
     pass
 
-field_hash = HashTree()
+syntax_help= """
+Description of layout syntax: 
+  f                    : a fixed length field
+  v                    : a variable length field 
+  ( <any word> -> N )  : a pointer field with origin <any word> spanning over N
+    fields
+  [...other fields...]*: repetition field.
+  
+All the above fields can be annotated with an angular bracketed identifier 
+to be referenced by pointer fields.
+EXAMPLES:
+  f(<me> -> 1)[f]<me>*
+  fvff
+  vff
 
+Spaces can be inserted wherever according to your taste. Parentheses indicate
+pointer fields, so you cannot use them to separate the fields.
+  
+  f<me> (<me> -> 3) v (<I> -> 1) v<I> f
+  f (<me> -> 3)<me> v v<var> (<var> -> 1)
+  
 
-pp = HornBinDeserializationParser()
-layout = pp.parsedef("[v<caputo>(| <caputo> |> 1|)]*")
-predicates = mu_labeling(layout)
-predicates.append(Beg(layout[0]))
+Notice that the identifier for repetition fields occurs between the closing
+bracket and the asterisk.
+  [ (<var> -> 1) v<var> (<varr> -> 2)<varr> v ]*<repid>
+  f [ (<var> -> 1) v<var> (<varr> -> 2)<varr> v ]*<repid>
+  f (<repid> -> 1)[ (<var> -> 1) v<var> (<varr> -> 2)<varr> v ]*<repid>
+"""
 
-for pre in predicates:
-    print pre
-print os.getcwd()
+def arguments():
+    parser = argparse.ArgumentParser(description='Horn Binary deserialization.')
+    parser.add_argument('--syntax', action="store_true", help='prints syntax help and exits')
+    parser.add_argument('-l', type=str,help="Inline layout definition", default="")
+    parser.add_argument('-i', type=str, help='Input file')
+    parser.add_argument('-o', type=str, help='output file', default='output.clp')
+    return parser.parse_args()
 
-# 
-# clips.Load("clips.clp")
-# clips.Reset()
-# 
-# tmp = clips.FindTemplate("beg")
-# print tmp.PPForm()
-# f1 = clips.Fact(tmp)
-# f1_slotkeys = f1.Slots.keys()
-# print f1_slotkeys
-# print "please print this"
-# print "print this other"
-# print "print this gfeghtrhtrsh"
-# print f1.PPForm()
-# print "and this"
-
-
-# clips.Reset()
-# t0 = clips.BuildTemplate("person", """
-#     (slot name (type STRING))
-#     (slot age (type INTEGER))
-# """, "template for a person")
-# print t0.PPForm()
-# f1 = clips.Fact(t0)
-# f1_slotkeys = f1.Slots.keys()
-# print f1_slotkeys
-# 
-# f1.Slots['name'] = "Grace"
-# f1.Slots['age'] = 24
-# print f1.PPForm()
-
-# facts = """( beg (index 0) )
-# ( len  ( index  0 ))
-# ( ptr (label  0 ) (length  3 ) (index  0  ))
-# ( len  ( index  0 1 ))
-# ( len  ( index  1 1 ))
-# ( len  ( index  2 1 ))
-# ( len  ( index  3 1 ))
-# ( repeat ( index  1 ) (length  4 ))
-# ( len  ( index  2 ))
-# """
-# ff =  clips.BuildDeffacts("ripSem1_nocount", facts, "initial kb")
-# clips.Reset()
-# clips.Run()
-
-
-#print predicates_nodes
+if __name__ == "__main__":
+    args = arguments()
+    pp = HornBinDeserializationParser()
+    if args.syntax:
+        print syntax_help
+        exit(0)
+    if args.i:
+        # read from file
+        with open(args.i,'r') as f:
+            spec = f.read()
+    if args.l:
+        spec = args.l
+    if not (args.l or args.i):
+        print "No input given."
+        exit(0)
+    out = args.o
+    if not out:
+        out = "output.clp"
+    
+    layout = pp.parsedef(spec)
+    # if layout starts with a repetition or a varfield, reject immediately.
+    if not layout or layout == []:
+        print "Empty layout."
+        exit(0)
+    if isinstance(layout[0],(R,V)):
+        print "A layout starting with a v or []* cannot be deserialized"
+        exit(0)
+    field_hash = HashTree()
+    predicates = mu_labeling(layout)
+    predicates.append(Beg(layout[0]))
+    clipsPreds = ""
+    for c in predicates:
+        clipsPreds += '\n'+str(c)
+     
+    initialKnowledge = predicate.printFact('deffacts inp "%s %s" %s' % ("kb for", spec, clipsPreds))
+    initialize = "(watch activations)\n(watch facts)\n(reset)\n(run)\n"
+    unknowns = ""
+    if len(pp.unknownLengths) > 0:
+        for v in pp.unknownLengths:
+            unknowns += '\n'+predicate.printUnknownLength(v.getindex())
+        unknowns = predicate.printFact("assert "+unknowns)
+    with open(out,'w') as f:
+        f.write(engine+initialKnowledge+initialize+unknowns+epilogue)
+    with open("boot.clp",'w') as f:
+        f.write("(batch %s)\n"%out)
+    result = subprocess.check_output(["clips","-f","boot.clp"])
+    with open("result.out", 'w') as f:
+        f.write(result)
+    for k in reversed(result.split("\n")):
+        if k == "CLIPS> (facts)":
+            break
+        else:
+            if "variable-not-found" in k:
+                print "Not deserializable: the length of a varfield was not computed."
+            elif "repeat-not-bounded" in k:
+                print "Not deserializable: a repeat field was not bounded."
+    print "Check result.out for the clips output and more detailled information."
