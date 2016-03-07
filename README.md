@@ -45,13 +45,23 @@ Examples:
 ```(<me> -> 6)<me> v f<her> v f (<her> -> 3)```
 
 # Implementation
-The layout mini-language is processed to a form that is essentially the one 
- described in the paper. This form is then translated to a set of predicates,
- these too following the shape described in the paper, which represent the 
- initial knowledge of a parser. This facts together with the CLIPS rules 
- embedded in the variable `engine` are sent to the CLIPS interpreter, opened
-  as a subprocess. The Python script analyzes the output and tells if the 
-  layout is deserializable or not.
+`main.py` processes the layout definition transforming it to a form that is 
+essentially the one described in the paper. 
+ 
+This form is then translated to a set of predicates representing the initial 
+knowledge, following the shape and methods described in the paper. 
+
+The CLIPS rules embedded in the variable `engine` in `main.py` mostly encode 
+the axioms described in the paper, plus some other machinery to actually be 
+able to detect what happened in the knowledge base. Refer to the source code, 
+the contents  of the `engine` variable in `main.py`, and to the CLIPS language 
+reference for more information.
+  
+The CLIPS interpreter, opened as a subprocess, receives the facts extracted 
+from the input layout together with the CLIPS rules as input.  
+
+The Python script analyzes the output of the interpreter and tells if the 
+layout is deserializable or not.
 
 # Further notes
 I wished to use the [pyclips library](https://github.com/almostearthling/pyclips
