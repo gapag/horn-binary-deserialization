@@ -293,7 +293,6 @@ class HornBinDeserializationParser:
                 except Exception as e:
                     # ptr does not point to an obj at the same level, no need to
                     # dupe the key
-                    print e
                     pass
         repeat.body = dupe + repeat.body
         # take care of other repetitions, replacing them in the duped half.
@@ -488,9 +487,9 @@ def analyseSpec(spec, out):
     if not layout or layout == []:
         print "Empty layout."
         exit(0)
-    if isinstance(layout[0],(R,V)):
-        print "A layout starting with a v or []* cannot be deserialized"
-        exit(0)
+    if isinstance(layout[0],V):
+        print "A layout starting with a v cannot be deserialized"
+        return 3
     field_hash = HashTree()
     predicates = mu_labeling(layout, field_hash,[],{},[],[])
     predicates.append(Beg(layout[0]))

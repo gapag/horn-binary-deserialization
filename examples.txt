@@ -2,16 +2,16 @@
 (<one> -> 5) f<one> f f [v f]* (<me> -> 2)<me> v
 
 #ripetizione | [s(0, 3), r(s(1,2),f)]
-(<ptr> -> 3)<ptr>   [(<rep> -> 2) f]<rep>*
+(<ptr> -> 2)<ptr>   [(<rep> -> 1) f]*<rep>
 
 #"ripSem" | [s(1, 3), f , r(f,f)]
-(fi -> 3) f<fi> [f f]*
+(<fi> -> 2) f<fi> [f f]*
 
 #"ripSem_nocount" | [ f , r(f,f)]
 f [f f]*
 
 #"ripSem_nocount_disaster" | [ s(0, 5), f , r(f,v,f)]
-(<me> -> 5)<me> f [f v f]*
+(<me> -> 3)<me> f [f v f]*
 
 #"ripSem1" | [s(0, 3), r(f,f),f]
 (<me> -> 3)<me> [f f]* f
@@ -20,13 +20,13 @@ f [f f]*
 (<me> -> 3)<me> [f, f] f
 
 #"noRipSem" | [s(0, 3), f,f]
-(<me> -> 3) f f
-    
+(<me> -> 3)<me> f f
+
 #"ambiguous" | [p([1], 5), f, f, f, r(v, f), p([5], 2), v]
 (<fi> -> 5) f<fi> f f [v f]* (<me> -> 2)<me> v
 
 #"ripetizione" | [p([0], 2), r(p([1],2),f)]
-(<ptr> -> 2)<ptr>   [(<rep> -> 2) f]<rep>*
+(<ptr> -> 2)<ptr>   [(<rep> -> 1) f]*<rep>
 
 #"dangerous" | [p([0], 3), r(v,p([0,1],1),v,p([2,1],1)), f,f]
 (<me> -> 3)<me> [v<i> (<i> -> 1) v<j> (<j> -> 1)] f f
@@ -37,9 +37,9 @@ f [f f]*
 #"ripSem_nocount" | [ f , r(f,f)]
 f [f f]*
 
-"ripSem_nocount_disaster" | [ p([0], 5), f , r(f,v,f)]
-(<me> -> 5)<me> f [f v f]*
-     
+#"ripSem_nocount_disaster" | [ p([0], 5), f , r(f,v,f)]
+(<me> -> 3)<me> f [f v f]*
+
 # [f,s(1,3),f, v, f],
 f (<me> -> 3)<me> f v f
 
@@ -51,7 +51,7 @@ f (<me> -> 3)<me> f v f
 
 #[s(0,4),v,v, s(2,1)],
 (<me> -> 4)<me> v v<him> (<him> -> 1)
- 
+
 # [s(1,5), v, v, s(2,3), f, f, f, f, f,s(2,1)],
 (<him> ->5 ) v<him> v<her> (<her> -> 3) f f f f f (<her> -> 1)
 
@@ -59,7 +59,7 @@ f (<me> -> 3)<me> f v f
 (<him> -> 9) v<him> v<her> (<her> -> 3) f f f f f (<her> -> 1)
 
 #[s(1,5), v, s(2,2), v, f ,v, s(2,4)]
-(<him> -> 5) v (<me> -> 2)<me> v f v (<me> -> 4)
+(<him> -> 5) v<him> (<me> -> 2)<me> v f v (<me> -> 4)
 
 #[s(1,8), v, s(2,2), v, f , f ,f, f ,f, f , s(2,4)]
 (<him> -> 8) v<him> (<me> -> 2)<me> v f f f f f f (<me> -> 4)
@@ -119,7 +119,7 @@ f (<me> -> 3)<me> f v f
 (<him> -> 1) v<him>
 
 #[s(0,2),v]
-(<her> -> 2) v<her>
+(<her> -> 1) v<her>
 
 #[s(2,7),f,f,s(5,2), v, f, v ,f,f,f]
 (<him> -> 7) f f<him> (<her> -> 2) v f<her> v f f f
@@ -180,7 +180,7 @@ f<him> f (<him> -> 6)<me> v f v f (<me> -> 3)
 
 #[s(1,5),f,f,f,r(v,f),s(5,2), v ]
 (<him> -> 5) f<him> f f [v f]* (<me> -> 2)<me> v
-    
+
 #[s(0,4),v,s(3,1),v],
 (<me> -> 4)<me> v (<him> -> 1) v<him>
 
