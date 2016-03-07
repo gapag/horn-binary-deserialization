@@ -10,7 +10,7 @@ This software is a Python implementation of the paper *Horn Binary Serialization
     available on your path so that Python can call it. 
     
 # Usage
-Running `main.py -h` shows the available arguments. 
+Running `python main.py -h` shows the available arguments. 
 
 ## Layout mini-language
 A layout is a sequence of fields. There are four possible fields.
