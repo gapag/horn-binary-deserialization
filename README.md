@@ -72,5 +72,39 @@ The language this software accepts is a simplified version of the one presented
 on the paper; not in expressivity but in its shape.
 
 For being able to refer to each field univocally the paper sets up a labelling
-framework by means of lists of integers. This is handy in the paper but not in
-real world. 
+framework by means of lists of integers. This is handy in the paper, but 
+you would generally like better to be able to refer with a mnemonic to the parts
+of the layout that matter for you.
+
+A big difference with the paper is, instead, that this implementation allows
+pointers to point to more outer scopes. There are two reasonable extensions 
+to what described in the paper, highlighted in the following two instances:
+
+1. ```f f [(<hej>->1)]*<hej> f```
+
+2. ```f f [(<uhh>->2)<uhh>]* f<hee>```
+
+The above two would not be legal in the paper description.
+The above can be included in a more general framework by pointing out that what
+ eventually matters with pointers is that
+
+* what it is being pointed is not ambiguous 
+
+* how one counts the span from the offset.
+
+In 1. the repetition `<hej>` contains a variable number of fields that tell the 
+repetitions' length. This layout is deserializable because as soon as the parser
+reads the first occurrence of the pointer, it knows where the whole repetition
+will end.
+
+In 2. the semantics of the span is: keep counting, overflowing to the next 
+field. That is, `<uhh>->2)<uhh>` counts itself, all the fields in following it 
+until the end of the repetition, plus `f<hee>`
+
+I implemented 1. because it seems more reasonable (the stream might periodically
+tell you what much is left to consume) and, to my subjective judgement more 
+intuitive. 2. is in principle easy to implement but one needs to slightly change
+ the axioms and most notably to introduce in the axioms some awareness about
+ the shape of the layout under analysis; or, in other words, the jump axioms
+ likewise facts should be generated in a per-layout fashion. I will implement it...
+ later.
